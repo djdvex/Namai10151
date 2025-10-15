@@ -1,0 +1,7 @@
+Vercel specifiniai aplankai
+
+.vercel
+dist
+Aplankai, kurie neturėtų būti įkelti į GitHub
+
+node_modules
