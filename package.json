@@ -1,0 +1,14 @@
+{
+"name": "gemini-vercel-app",
+"version": "1.0.0",
+"description": "Minimal configuration for Vercel Serverless Function.",
+"private": true,
+"type": "module",
+"scripts": {
+"start": "echo 'No build step required for this static project'"
+},
+"dependencies": {
+"node-fetch": "^3.3.2",
+"@supabase/supabase-js": "^2.44.2"
+}
+}
