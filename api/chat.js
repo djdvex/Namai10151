@@ -1,43 +1,21 @@
+// chat.js - Tvarko Gemini turinio generavimą ir kvotos valdymą.
 
-Štai **`api/chat.js`** kodas kaip **paprastas tekstas** (tikrai nesutrumpinsiu!):
+// Reikalingi kintamieji Vercel aplinkoje: 
+// GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
----
-
-## 2. Serverless funkcija: `api/chat.js` (Pilnas tekstas)
-
-Šį kodą išsaugokite kaip **`api/chat.js`** aplanke **`api/`**.
-
-```javascript
-/* * Serverless funkcija: /api/chat
- * TVARKO: 
- * 1. Naudotojo autentifikavimą per Supabase sesijos žetoną.
- * 2. Kvotos (remaining_messages) patikrinimą ir atėmimą Supabase duombazėje.
- * 3. Gemini API kvietimą su Google paieškos įrankiu (grounding).
- *
- * REIKALINGI ENV KINTAMIEJI:
- * - SUPABASE_URL
- * - SUPABASE_SERVICE_ROLE_KEY (slaptasis)
- * - GEMINI_API_KEY
-*/
-
+import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
 
-// Vercel naudoja modulį 'node-fetch', tad importuojame jį.
-import fetch from 'node-fetch'; 
+// Inicializuojame klientus naudodami aplinkos kintamuosius
+const gemini = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
-// Konfigūracija
-const GEMINI_API_URL = '[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent)';
-const GEMINI_MODEL = 'gemini-2.5-flash-preview-05-20';
-
-// Inicijuojame Supabase su Service Role Key (tik Serverless aplinkoje)
-const supabase = createClient(
+// NAUDOJAMAS SUPABASE ADMIN KLIENTAS, NES REIKALINGOS RAŠYMO TEISĖS
+const supabaseAdmin = createClient(
     process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    { auth: { persistSession: false } }
+    process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
 export default async function handler(req, res) {
-    // Tikriname HTTP metodą
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
@@ -47,107 +25,76 @@ export default async function handler(req, res) {
     if (!prompt || !supabaseToken) {
         return res.status(400).json({ error: 'Missing prompt or authentication token.' });
     }
-
-    let userId = null;
-
+    
+    // 1. Patvirtinimas ir vartotojo ID gavimas iš JWT
+    let userId;
     try {
-        // === 1. AUTENTIFIKACIJA PER SUPABASE (SERVISE ROLE KEY) ===
-        // Naudojame 'service_role' raktą, kad patikrintume žetoną be prisijungimo per jį.
-        // Ši funkcija yra saugiausias būdas nustatyti vartotojo ID serveryje.
-        const { data: userData, error: authError } = await supabase.auth.getUser(supabaseToken);
-
-        if (authError || !userData.user) {
-            console.error('Supabase Auth Error:', authError ? authError.message : 'User not found');
-            return res.status(401).json({ error: 'Invalid or expired session. Please log in again.' });
+        // Naudojamas Service Role Key gauti vartotojo duomenims iš Front-end token'o
+        const { data: { user } } = await supabaseAdmin.auth.getUser(supabaseToken);
+        userId = user?.id;
+        if (!userId) {
+            return res.status(401).json({ error: 'Invalid or expired user token.' });
         }
+    } catch (error) {
+        console.error('JWT validation error:', error);
+        return res.status(401).json({ error: 'Authentication failed.' });
+    }
 
-        userId = userData.user.id;
-
-        // === 2. KVOTOS PATIKRINIMAS SUPABASE ===
-        const { data: quotaData, error: quotaError } = await supabase
+    // 2. Kvotos patikrinimas
+    let remainingMessages;
+    try {
+        const { data: quotaData, error: quotaError } = await supabaseAdmin
             .from('user_quotas')
             .select('remaining_messages')
             .eq('user_id', userId)
             .single();
 
-        if (quotaError && quotaError.code !== 'PGRST116') { // PGRST116 reiškia, kad eilutė nerasta (naujas vartotojas)
-            console.error('Quota Fetch Error:', quotaError);
-            return res.status(500).json({ error: 'Could not check quota in database.' });
-        }
+        remainingMessages = quotaData?.remaining_messages || 0;
 
-        const remainingMessages = quotaData ? quotaData.remaining_messages : 0;
-        
-        // Patikriname, ar kvota yra pakankama (daugiau nei 0)
         if (remainingMessages <= 0) {
-            return res.status(403).json({ 
-                error: 'Quota exceeded. Please buy more messages.', 
-                remaining: 0
-            });
+            return res.status(403).json({ error: 'Quota exceeded. Please buy more messages.', remaining: 0 });
         }
+    } catch (error) {
+        console.error('Quota check error:', error);
+        return res.status(500).json({ error: 'Internal server error during quota check.' });
+    }
 
-        // === 3. GEMINI API KVETIMAS ===
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-             return res.status(500).json({ error: 'Server configuration error: Gemini API Key is missing.' });
-        }
-
-        const payload = {
-            contents: [{ parts: [{ text: prompt }] }],
-            
-            // Įjungia Google Search (grounding)
-            tools: [{ "google_search": {} }], 
-            
-            // Nustato Gemini persona (System Instruction)
-            systemInstruction: {
-                parts: [{ text: systemInstruction || "You are a helpful and professional assistant." }]
-            },
-        };
-
-        // Rekomenduojama: naudojame tik 'gemini-2.5-flash-preview-05-20' modelį.
-        const geminiApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-
-        const geminiResponse = await fetch(geminiApiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+    // 3. Generuojame turinį su Gemini
+    let generatedText = '';
+    try {
+        const response = await gemini.models.generateContent({
+            model: "gemini-2.5-flash-preview-05-20",
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            config: {
+                systemInstruction: { parts: [{ text: systemInstruction }] },
+                tools: [{ google_search: {} }],
+            }
         });
-
-        if (!geminiResponse.ok) {
-            const errorText = await geminiResponse.text();
-            console.error('Gemini API Error:', errorText);
-            return res.status(geminiResponse.status).json({ error: 'Gemini API call failed.', details: errorText });
-        }
-
-        const result = await geminiResponse.json();
-        const generatedText = result.candidates?.[0]?.content?.parts?.[0]?.text || "Could not generate content.";
-        
-        // === 4. KVOTOS ATĖMIMAS SUPABASE ===
-        const newRemaining = remainingMessages - 1;
-
-        if (quotaData) {
-            // Vartotojas jau yra duombazėje, atnaujiname likusias žinutes
-            await supabase
-                .from('user_quotas')
-                .update({ remaining_messages: newRemaining })
-                .eq('user_id', userId);
-        } else {
-            // Naujas vartotojas, įterpiame pradinius duomenis (pvz., jei duodate nemokamą startą)
-            await supabase
-                .from('user_quotas')
-                .insert([{ user_id: userId, remaining_messages: newRemaining }]);
-        }
-
-
-        // Sėkmingas atsakas
-        return res.status(200).json({ 
-            text: generatedText, 
-            remaining: newRemaining 
-        });
+        generatedText = response.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
 
     } catch (error) {
-        console.error('Fatal Server Error:', error);
-        return res.status(500).json({ error: 'Internal server error during processing.' });
+        console.error('Gemini API Error:', error.message);
+        // Negrąžiname kvotos klaidos atveju
+        return res.status(500).json({ error: 'Gemini API Error: ' + error.message, remaining: remainingMessages });
     }
+
+    // 4. Kvotos sumažinimas (tik sėkmingai sugeneravus)
+    try {
+        remainingMessages -= 1;
+        // Naudojame .update() vietoj .insert(), kad atnaujintume esamą kvotą
+        await supabaseAdmin
+            .from('user_quotas')
+            .update({ remaining_messages: remainingMessages })
+            .eq('user_id', userId);
+
+    } catch (error) {
+        console.error('Quota decrement error:', error);
+        // Klaida sumažinant kvotą vis tiek leidžia grąžinti tekstą
+    }
+
+    // 5. Sėkmingas atsakymas
+    res.status(200).json({ 
+        text: generatedText,
+        remaining: remainingMessages
+    });
 }
-
-
