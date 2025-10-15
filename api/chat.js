@@ -1,15 +1,17 @@
-// chat.js - Tvarko Gemini turinio generavimą ir kvotos valdymą.
-
-// Reikalingi kintamieji Vercel aplinkoje: 
-// GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+// api/chat.js - Tvarko Gemini turinio generavimą, kvotos valdymą ir autentiacijos patikrą.
 
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@supabase/supabase-js';
 
-// Inicializuojame klientus naudodami aplinkos kintamuosius
+// Patikrinkite, ar API raktas yra prieinamas.
+if (!process.env.GEMINI_API_KEY) {
+    console.error("GEMINI_API_KEY is not set.");
+}
+
+// TURI NAUDOTI TIK GEMINI_API_KEY
 const gemini = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
-// NAUDOJAMAS SUPABASE ADMIN KLIENTAS, NES REIKALINGOS RAŠYMO TEISĖS
+// Supabase Admin klientas (reikalingas kvotos mažinimui ir JWT patikrinimui)
 const supabaseAdmin = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -22,22 +24,29 @@ export default async function handler(req, res) {
 
     const { prompt, systemInstruction, supabaseToken } = req.body;
 
-    if (!prompt || !supabaseToken) {
-        return res.status(400).json({ error: 'Missing prompt or authentication token.' });
+    // Patikra: Ar perduotas žetonas iš Front-end?
+    if (!supabaseToken) {
+        return res.status(401).json({ error: 'Authentication required. Please log in first.' });
     }
-    
+
     // 1. Patvirtinimas ir vartotojo ID gavimas iš JWT
     let userId;
     try {
-        // Naudojamas Service Role Key gauti vartotojo duomenims iš Front-end token'o
-        const { data: { user } } = await supabaseAdmin.auth.getUser(supabaseToken);
+        // Tikrinama, ar tokenas yra tinkamas (tai patvirtina, kad vartotojas prisijungęs)
+        const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(supabaseToken);
+        
+        if (authError) {
+             console.error('JWT validation error:', authError.message);
+             return res.status(401).json({ error: 'Authentication failed: Invalid token.', details: authError.message });
+        }
+
         userId = user?.id;
         if (!userId) {
-            return res.status(401).json({ error: 'Invalid or expired user token.' });
+            return res.status(401).json({ error: 'Authentication failed: User ID not found in token.' });
         }
     } catch (error) {
-        console.error('JWT validation error:', error);
-        return res.status(401).json({ error: 'Authentication failed.' });
+        console.error('JWT processing error:', error);
+        return res.status(401).json({ error: 'Internal token processing error.' });
     }
 
     // 2. Kvotos patikrinimas
@@ -49,7 +58,12 @@ export default async function handler(req, res) {
             .eq('user_id', userId)
             .single();
 
-        remainingMessages = quotaData?.remaining_messages || 0;
+        if (quotaError) {
+             // Tai gali reikšti, kad vartotojas dar neturi kvotos įrašo
+             remainingMessages = 0;
+        } else {
+             remainingMessages = quotaData?.remaining_messages || 0;
+        }
 
         if (remainingMessages <= 0) {
             return res.status(403).json({ error: 'Quota exceeded. Please buy more messages.', remaining: 0 });
@@ -74,14 +88,13 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error('Gemini API Error:', error.message);
-        // Negrąžiname kvotos klaidos atveju
+        // Svarbu: grąžiname klaidos pranešimą, bet neleidžiame sumažinti kvotos
         return res.status(500).json({ error: 'Gemini API Error: ' + error.message, remaining: remainingMessages });
     }
 
     // 4. Kvotos sumažinimas (tik sėkmingai sugeneravus)
     try {
         remainingMessages -= 1;
-        // Naudojame .update() vietoj .insert(), kad atnaujintume esamą kvotą
         await supabaseAdmin
             .from('user_quotas')
             .update({ remaining_messages: remainingMessages })
