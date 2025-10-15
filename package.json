@@ -5,7 +5,8 @@
 "private": true,
 "type": "module",
 "scripts": {
-"start": "echo 'No build step required for this static project'"
+"start": "echo 'No build step required for this static project'",
+"build": "echo 'Building static project... done.'"
 },
 "dependencies": {
 "node-fetch": "^3.3.2",
