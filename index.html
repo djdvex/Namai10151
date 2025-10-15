@@ -54,20 +54,19 @@
         <header class="mb-8 flex justify-between items-center p-4 card">
             <h1 class="text-3xl font-bold text-white">Gemini Generatorius</h1>
             <div id="auth-status" class="flex items-center space-x-4">
-                <!-- Autentifikacijos būsena ir mygtukai bus rodomi čia -->
+                <!-- Autentifikacijos būsena ir mygtukai bus rodomi čia (pvz., el. paštas ir Atsijungti) -->
             </div>
         </header>
 
-        <!-- Kvotos ir Mokėjimų Informacija -->
+        <!-- Kvotos ir Mokėjimų Informacija (Bus rodoma TIK prisijungus) -->
         <div id="quota-display" class="card p-4 mb-8 hidden">
             <p class="text-lg font-semibold">Liko žinučių: <span id="remaining-count" class="text-yellow-400">0</span></p>
             <button id="buy-messages-btn" class="btn-primary px-4 py-2 mt-2">Pirkti daugiau žinučių</button>
-            <p id="auth-info" class="text-sm mt-2 text-gray-400"></p>
         </div>
 
-        <!-- Autentifikacijos Forma -->
-        <div id="auth-container" class="card p-8 mb-8 mx-auto hidden" style="max-width: 400px;">
-            <h2 class="text-xl font-bold mb-4">Prisijungimas / Registracija</h2>
+        <!-- Autentifikacijos Forma (Bus rodoma TIK neprisijungus) -->
+        <div id="auth-container" class="card p-8 mb-8 mx-auto" style="max-width: 400px;">
+            <h2 class="text-xl font-bold mb-4 text-white">Prisijungimas / Registracija</h2>
             <input type="email" id="email" placeholder="El. paštas" class="input-style w-full mb-3" required>
             <input type="password" id="password" placeholder="Slaptažodis" class="input-style w-full mb-4" required>
             <button id="signup-btn" class="btn-primary w-full py-2 mb-2">Registruotis</button>
@@ -75,7 +74,7 @@
             <p id="auth-message" class="text-center mt-3 text-sm text-red-400"></p>
         </div>
 
-        <!-- Generatoriaus Forma -->
+        <!-- Generatoriaus Forma (Bus rodoma TIK prisijungus) -->
         <div id="generator-container" class="card p-8 hidden">
             <h2 class="text-2xl font-bold mb-4">Generuoti Turinį</h2>
 
@@ -98,19 +97,13 @@
     </div>
 
     <script>
-        // Kintamieji bus priskirti čia per Vercel/Supabase ENV
-        const SUPABASE_URL = 'SUPABASE_URL_HERE'; // Pakeisti į process.env.SUPABASE_URL Vercel'e
-        const SUPABASE_ANON_KEY = 'SUPABASE_ANON_KEY_HERE'; // Pakeisti į process.env.SUPABASE_ANON_KEY Vercel'e
-        const STRIPE_PUBLISHABLE_KEY = 'STRIPE_PUBLISHABLE_KEY_HERE'; // Pakeisti į process.env.STRIPE_PUBLISHABLE_KEY Vercel'e
-        
-        // Pakeisti kintamųjų reikšmes, kai diegiama Vercel platformoje.
-        // Jei Vercel leidžia, galite naudoti inline scriptą:
-        /*
-        const SUPABASE_URL = window.__SUPABASE_URL__;
-        const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__;
-        const STRIPE_PUBLISHABLE_KEY = window.__STRIPE_PUBLISHABLE_KEY__;
-        */
+        // VISI VIEŠIEJI RAKTAI DABAR ĮTERPTI TIESIOGIAI
+        const SUPABASE_URL = 'https://rqakkwoddmfjfizuhodo.supabase.co'; 
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxYWtrd29kZG1mamZpenVob2RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA0Mjk2MjgsImV4cCI6MjA3NjAwNTYyOH0.61RkAUx4aYUUc0u36XuHRZryp4Dl3E_Np-jauLSPkk0'; 
+        const STRIPE_PUBLISHABLE_KEY = 'pk_test_51SI33zJfVXFUErFWdgQf2Ht1xdWXKUSwIVHsnsHbXCifQxieN8gWhk5sISFfLFXFHOyNHXPSBAJhXK7p7PNPRcbD00cyr6xboJ'; // ĮTERPTA PAGAL JŪSŲ PRAŠYMĄ
 
+        
+        // Inicializacija
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         const stripe = Stripe(STRIPE_PUBLISHABLE_KEY);
 
@@ -141,25 +134,21 @@
                 return;
             }
 
-            // Kviečiame kvotos tikrinimo funkcija, kuri kviečia api/chat be prompt
-            // Tai yra paprastas būdas gauti kvotą, bet efektyviau būtų tiesiogiai per Supabase
-            // Tačiau tiesioginis kvietimas api/chat be prompt paprastesnis implementuoti.
-            
-            // Tiesioginis kvietimas į Supabase yra saugiausias kvotos gavimo būdas:
             try {
+                // Tiesioginis kvietimas į Supabase kvotos gavimui:
                 const { data, error } = await supabase
                     .from('user_quotas')
                     .select('remaining_messages')
                     .eq('user_id', userId)
                     .single();
 
-                if (error && error.code !== 'PGRST116') { // PGRST116: eilutė nerasta
-                    console.error('Kvotos gavimo klaida:', error);
-                    remainingCount.textContent = 'ERROR';
-                    return;
+                if (error && error.code !== 'PGRST116') { // PGRST116: eilutė nerasta (naujas vartotojas)
+                    console.warn('Kvotos įrašo nerasta, nustatoma numatytoji kvota.');
                 }
                 
-                const remaining = data ? data.remaining_messages : 20; // Naujam vartotojui duodame 20 nemokamų žinučių
+                // Jei naujas vartotojas arba kvota nenustatyta
+                const initialQuota = 20;
+                const remaining = data ? data.remaining_messages : initialQuota; 
                 
                 // Jei naujas vartotojas ir kvota dar nebuvo nustatyta, nustatome
                 if (!data && remaining > 0) {
@@ -186,6 +175,7 @@
                 // PRISIJUNGĘS VARTOTOJAS
                 currentUserId = session.user.id;
 
+                // Rodo generatorių ir kvotą, slepia prisijungimą
                 authContainer.classList.add('hidden');
                 generatorContainer.classList.remove('hidden');
                 quotaDisplay.classList.remove('hidden');
@@ -202,6 +192,7 @@
                 // NEPRISIJUNGĘS VARTOTOJAS
                 currentUserId = null;
 
+                // Rodo prisijungimą, slepia generatorių ir kvotą
                 authContainer.classList.remove('hidden');
                 generatorContainer.classList.add('hidden');
                 quotaDisplay.classList.add('hidden');
@@ -214,13 +205,22 @@
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
 
+            if (password.length < 6) {
+                authMessage.textContent = 'Slaptažodis turi būti bent 6 simbolių.';
+                return;
+            }
+
             authMessage.textContent = 'Registruojama...';
+            // Naudojama Supabase autentifikacija
             const { data, error } = await supabase.auth.signUp({ email, password });
 
             if (error) {
                 authMessage.textContent = 'Registracija nepavyko: ' + error.message;
             } else {
                 authMessage.textContent = 'Sėkmingai užregistruota! Patikrinkite el. paštą, kad patvirtintumėte.';
+                // Išvalyti laukus po sėkmingos registracijos
+                document.getElementById('email').value = '';
+                document.getElementById('password').value = '';
             }
         }
 
@@ -229,13 +229,14 @@
             const password = document.getElementById('password').value;
 
             authMessage.textContent = 'Prisijungiama...';
+            // Naudojama Supabase autentifikacija
             const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
             if (error) {
                 authMessage.textContent = 'Prisijungimas nepavyko: ' + error.message;
             } else {
                 authMessage.textContent = '';
-                updateUI(data.session); // Supabase listener atnaujins UI, bet galime atnaujinti ir čia.
+                // UI bus atnaujinta per supabase.auth.onAuthStateChange listener'į
             }
         }
 
@@ -247,8 +248,6 @@
                 authMessage.textContent = 'Atsijungimas nepavyko: ' + error.message;
             } else {
                 authMessage.textContent = '';
-                updateUI(null);
-                // Išvalyti sesiją ir vartotojo duomenis
             }
         }
 
@@ -270,6 +269,7 @@
             resultContent.textContent = '';
 
             try {
+                // Kviečiama Serverless funkcija, kuri naudoja slaptus raktus (pvz., GEMINI_API_KEY)
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -283,15 +283,14 @@
                 const data = await response.json();
 
                 if (!response.ok) {
-                    // Klaida iš API (pvz., kvota baigėsi)
-                    resultContent.textContent = 'Klaida generuojant: ' + (data.error || 'Nežinoma klaida.');
+                    // Klaida iš API (Gemini API raktas, Kvota pasibaigė Serverless pusėje)
+                    resultContent.textContent = 'Klaida generuojant: ' + (data.error || 'Nežinoma klaida. Patikrinkite Gemini API raktą Vercel\'yje.');
                     
                     if (data.remaining !== undefined) {
                         remainingCount.textContent = data.remaining;
                     }
 
                     if (data.error && data.error.includes('Quota exceeded')) {
-                        // Jei kvota viršyta, atblokuojame pirkimo mygtuką
                         generateBtn.textContent = 'Kvotą išnaudota';
                     }
 
@@ -307,9 +306,10 @@
                 resultContent.textContent = 'Nepavyko prisijungti prie serverio API.';
             } finally {
                 loadingMessage.classList.add('hidden');
-                generateBtn.disabled = remainingCount.textContent <= 0;
-                if(remainingCount.textContent > 0) {
+                // Nustatome mygtuką, jei kvota dar liko
+                if(parseInt(remainingCount.textContent) > 0) {
                      generateBtn.disabled = false;
+                     generateBtn.textContent = 'Generuoti turinį';
                 }
             }
         }
@@ -319,7 +319,8 @@
              const userId = currentUserId;
 
             if (!userId) {
-                alert('Pirmiausia turite prisijungti, kad galėtumėte pirkti žinutes.');
+                console.error('Pirmiausia turite prisijungti, kad galėtumėte pirkti žinutes.');
+                authMessage.textContent = 'Pirmiausia prisijunkite!';
                 return;
             }
             
@@ -327,7 +328,7 @@
             buyMessagesBtn.textContent = 'Ruošiama...';
 
             try {
-                // Kviečiame Serverless funkciją, kuri sukurs Stripe Checkout sesiją
+                // Kviečiame Serverless funkciją, kuri sukurs Stripe Checkout sesiją (naudojant STRIPE_SECRET_KEY)
                 const response = await fetch('/api/create-checkout-session', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -340,12 +341,13 @@
                     // Nukreipiame vartotoją į Stripe apmokėjimo puslapį
                     window.location.href = data.url;
                 } else {
-                    alert('Klaida kuriant apmokėjimo sesiją: ' + (data.error || 'Nežinoma klaida.'));
+                    console.error('Klaida kuriant apmokėjimo sesiją:', data.error || 'Nežinoma klaida.');
+                    authMessage.textContent = 'Klaida kuriant mokėjimo sesiją.';
                 }
 
             } catch (error) {
                 console.error('Mokėjimo klaida:', error);
-                alert('Serverio klaida kuriant apmokėjimo sesiją.');
+                authMessage.textContent = 'Serverio klaida kuriant mokėjimo sesiją.';
             } finally {
                 buyMessagesBtn.disabled = false;
                 buyMessagesBtn.textContent = 'Pirkti daugiau žinučių';
@@ -365,13 +367,13 @@
             // Pirkimo mygtukas
             buyMessagesBtn.onclick = handleBuyMessages;
 
-            // Supabase autentifikacijos būsenos klausyklė
+            // Supabase autentifikacijos būsenos klausyklė: atnaujina UI, kai pasikeičia prisijungimo būsena
             supabase.auth.onAuthStateChange((event, session) => {
                 console.log('Auth event:', event);
                 updateUI(session);
             });
             
-            // Pradinis UI atnaujinimas
+            // Pradinis UI atnaujinimas: patikrinama, ar vartotojas jau prisijungęs
             supabase.auth.getSession().then(({ data: { session } }) => {
                 updateUI(session);
             });
@@ -379,3 +381,4 @@
     </script>
 </body>
 </html>
+
