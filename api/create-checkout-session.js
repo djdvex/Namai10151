@@ -1,77 +1,91 @@
-/* * Serverless funkcija: /api/create-checkout-session
- * TVARKO: 
- * 1. Sukuria naują Stripe apmokėjimo sesiją.
- * 2. Peradresuoja naudotoją į Stripe apmokėjimo puslapį.
- *
- * REIKALINGI ENV KINTAMIEJI:
- * - STRIPE_SECRET_KEY (Slaptasis raktas, prasideda sk_...)
- * - SUPABASE_URL (Naudojamas kaip sėkmės/atšaukimo nukreipimas)
- *
- * SVARBU: Reikia rankiniu būdu nustatyti 'priceId' su jūsų Stripe produkto ID.
-*/
+// api/create-checkout-session.js - Sukuria Stripe Checkout sesiją kvotos pirkimui.
+
+// Reikalingi aplinkos kintamieji:
+// - STRIPE_SECRET_KEY
+// - VITE_STRIPE_PRICE_PREMIUM (naudojamas čia)
+// - SUPABASE_URL
+// - SUPABASE_SERVICE_ROLE_KEY
 
 import Stripe from 'stripe';
+import { createClient } from '@supabase/supabase-js';
 
-// Stripe inicijuojamas naudojant slaptąjį raktą iš aplinkos kintamųjų.
-// Jį turite nustatyti Vercel'e kaip STRIPE_SECRET_KEY
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-    apiVersion: '2020-08-27',
-});
+// Inicializuojame Stripe su Secret Key
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// PAKEISTI: Šį ID turite pakeisti savo Stripe produkto/kainos ID!
-const priceId = 'price_1P8c7fRZ2qJz4j0lKxR4gKzG'; // Pavyzdys: 20 žinučių paketas
+// Supabase Admin klientas (naudojamas tik vartotojo atpažinimui)
+const supabaseAdmin = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+// Jūsų Stripe kainos ID (patikrinkite, ar jis teisingas!)
+// Šis kintamasis yra Vercel nustatymuose, bet jį naudojame čia tiesiogiai.
+const PRODUCT_PRICE_ID = process.env.VITE_STRIPE_PRICE_PREMIUM;
+
+// Jūsų programos URL, kuris bus naudojamas sėkmingam ir atšauktam mokėjimui
+const HOST_URL = process.env.VERCEL_URL 
+    ? `https://${process.env.VERCEL_URL}` 
+    : 'http://localhost:3000'; // Pakeiskite į savo lokalią aplinką, jei testuojate
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed' });
     }
 
-    // Gauname user_id iš kliento. Šis ID bus naudojamas Stripe Webhook'e.
-    const { userId } = req.body;
+    const { supabaseToken } = req.body;
 
-    if (!userId) {
-        return res.status(400).json({ error: 'Missing user identifier for checkout.' });
+    // Patikrinimas: Ar perduotas žetonas iš Front-end?
+    if (!supabaseToken) {
+        return res.status(401).json({ error: 'Authentication required. Please log in first.' });
+    }
+
+    let userId;
+    let userEmail;
+    try {
+        // Patikriname vartotojo autentifikaciją
+        const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(supabaseToken);
+        
+        if (authError || !user) {
+             return res.status(401).json({ error: 'Authentication failed: Invalid token.' });
+        }
+
+        userId = user.id;
+        userEmail = user.email;
+
+    } catch (error) {
+        console.error('JWT processing error:', error);
+        return res.status(401).json({ error: 'Internal token processing error.' });
     }
 
     try {
-        // Naudojame SUPABASE_URL kaip bazinę nuorodą (pvz., https://dinamai1015.vercel.app)
-        const baseUrl = process.env.SUPABASE_URL.replace(/(\.co|\.app).*$/, '$1') // Šaliname portą, jei jis yra lokalus
-        const successUrl = `${req.headers.origin}/?session_id={CHECKOUT_SESSION_ID}&success=true`;
-        const cancelUrl = `${req.headers.origin}/?canceled=true`;
-        
-        // Saugiau naudoti tikrąjį domeno URL
-        // const successUrl = `${baseUrl}/?session_id={CHECKOUT_SESSION_ID}&success=true`;
-        // const cancelUrl = `${baseUrl}/?canceled=true`;
-
-
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             line_items: [
                 {
-                    price: priceId,
+                    price: PRODUCT_PRICE_ID,
                     quantity: 1,
                 },
             ],
             mode: 'payment',
-            success_url: successUrl,
-            cancel_url: cancelUrl,
-            
-            // Perduodame vartotojo ID į Stripe sesiją. Jį Webhook'as naudos kvotos pridėjimui.
+            // Sukuriame unikalius Stripe kliento metaduomenis (būtina webhook'ui!)
             metadata: {
                 user_id: userId,
-                package: '20_MESSAGES' 
             },
-
-            // Pasirenkamas: jei vartotojas prisijungęs per el. paštą, Stripe gali jį užpildyti automatiškai.
-            // customer_email: 'vartotojo@email.com', 
+            // Nurodome vartotojo el. paštą apmokėjimui
+            customer_email: userEmail, 
+            success_url: `${HOST_URL}/?success=true`,
+            cancel_url: `${HOST_URL}/?canceled=true`,
         });
 
-        // Sėkmingai sukurta sesija, grąžiname URL, kad nukreiptume naudotoją į Stripe
+        // Grąžiname Stripe sesijos URL
         res.status(200).json({ url: session.url });
 
     } catch (error) {
-        console.error('Stripe Checkout Creation Error:', error);
-        res.status(500).json({ error: 'Could not create Stripe checkout session.', details: error.message });
+        console.error('Stripe Checkout Error:', error.message);
+        // Pranešame klaidos tipą atgal į Front-end
+        res.status(500).json({ 
+            error: 'Failed to create Stripe Checkout session.',
+            details: error.message 
+        });
     }
 }
-
