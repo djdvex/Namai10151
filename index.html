@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Teksto Generatorius</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fontas -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+<div class="w-full max-w-2xl bg-white p-8 rounded-xl shadow-2xl transition-shadow hover:shadow-3xl">
+    <h1 class="text-3xl font-bold mb-6 text-center text-indigo-700">Gemini Teksto Generatorius</h1>
+    <p class="text-center text-gray-500 mb-8">Įveskite užklausą ir generuokite turinį naudodami Gemini su Google paieška.</p>
+
+    <!-- Teksto įvedimo forma -->
+    <div class="mb-6">
+        <label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">Jūsų užklausa:</label>
+        <textarea id="prompt" rows="4" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out" placeholder="Pvz.: Parašykite 500 žodžių esė apie dirbtinio intelekto etikos principus."></textarea>
+    </div>
+
+    <!-- Sistemos instrukcija (Gemini persona) -->
+    <div class="mb-8">
+        <label for="systemInstruction" class="block text-sm font-medium text-gray-700 mb-2">Sistemos instrukcija (Gemini persona):</label>
+        <textarea id="systemInstruction" rows="2" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 resize-none transition duration-150 ease-in-out" placeholder="Pvz.: Elkitės kaip pasaulinio lygio finansų analitikas. Pateikite glaustą, vienos pastraipos santrauką..."></textarea>
+        <p class="text-xs text-gray-400 mt-1">Nurodykite Gemini, koks turėtų būti jo vaidmuo ir tonas.</p>
+    </div>
+
+    <!-- Generavimo mygtukas -->
+    <button id="generateBtn" class="w-full flex justify-center items-center px-4 py-3 border border-transparent text-lg font-medium rounded-xl shadow-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-300 ease-in-out transform hover:scale-[1.01] disabled:bg-indigo-400 disabled:cursor-not-allowed">
+        <span id="btnText">Generuoti turinį</span>
+        <!-- Įkrovimo indikatorius -->
+        <svg id="loadingSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+    </button>
+
+    <!-- Rezultatų skiltis -->
+    <div id="results" class="mt-10 pt-6 border-t border-gray-200">
+        <h2 id="resultTitle" class="text-2xl font-semibold mb-4 text-indigo-700 hidden">Sugeneruotas turinys</h2>
+
+        <!-- Gemini atsakas -->
+        <div id="generatedTextContainer" class="bg-indigo-50 p-4 rounded-lg shadow-inner whitespace-pre-wrap text-gray-800 text-base leading-relaxed hidden">
+            <p id="generatedText"></p>
+        </div>
+
+        <!-- Šaltinių skiltis (jei naudojama Google Search) -->
+        <div id="sourcesContainer" class="mt-4 p-4 bg-gray-100 rounded-lg hidden">
+            <p class="text-sm font-semibold text-gray-700 mb-2">Šaltiniai (naudojant Google Search):</p>
+            <ul id="sourcesList" class="list-disc pl-5 text-sm text-gray-600">
+                <!-- Šaltiniai bus pridėti čia -->
+            </ul>
+        </div>
+
+        <!-- Klaidos pranešimas -->
+        <div id="errorMsg" class="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg hidden">
+            <p id="errorText"></p>
+        </div>
+    </div>
+</div>
+
+<script>
+    // API adreso konstanta nukreipia į Vercel Serverless Function
+    const VERCEL_API_ENDPOINT = "/api/generate";
+    
+    // Eksponentinio atsitraukimo funkcija užklausai siųsti (kliento pusė)
+    async function fetchWithRetry(url, options, maxRetries = 5, delay = 1000) {
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                const response = await fetch(url, options);
+                if (response.ok) {
+                    return await response.json();
+                }
+
+                // API Klaida, bandoma iš naujo arba pranešama
+                const errorText = await response.text();
+                if (response.status === 429 || response.status >= 500) {
+                    throw new Error(`Serverio Klaida: ${response.status} - ${errorText}`);
+                }
+                
+                // Kitos klaidos (pvz., 400 Bad Request) nėra pakartotinai bandomos
+                throw new Error(`Klaida: ${response.status} - ${errorText}`);
+
+            } catch (error) {
+                console.error(`Bandoma iš naujo po klaidos (bandymas ${i + 1}/${maxRetries}):`, error);
+                if (i < maxRetries - 1) {
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2; // Eksponentinis atsitraukimas
+                } else {
+                    throw error; // Paskutinis bandymas nepavyko
+                }
+            }
+        }
+    }
+
+    // Pagrindinė generavimo funkcija
+    document.getElementById('generateBtn').addEventListener('click', async () => {
+        const prompt = document.getElementById('prompt').value.trim();
+        const systemInstruction = document.getElementById('systemInstruction').value.trim();
+        
+        const generatedTextContainer = document.getElementById('generatedTextContainer');
+        const generatedTextP = document.getElementById('generatedText');
+        const sourcesContainer = document.getElementById('sourcesContainer');
+        const sourcesList = document.getElementById('sourcesList');
+        const errorMsg = document.getElementById('errorMsg');
+        const errorText = document.getElementById('errorText');
+        const generateBtn = document.getElementById('generateBtn');
+        const btnText = document.getElementById('btnText');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const resultTitle = document.getElementById('resultTitle');
+
+        // Išvalyti ankstesnius rezultatus
+        generatedTextContainer.classList.add('hidden');
+        sourcesContainer.classList.add('hidden');
+        errorMsg.classList.add('hidden');
+        generatedTextP.textContent = '';
+        sourcesList.innerHTML = '';
+        resultTitle.classList.add('hidden');
+
+        if (!prompt) {
+            errorText.textContent = 'Prašome įvesti užklausą.';
+            errorMsg.classList.remove('hidden');
+            return;
+        }
+
+        // Įjungti įkrovimo būseną
+        generateBtn.disabled = true;
+        btnText.textContent = 'Generuojama...';
+        loadingSpinner.classList.remove('hidden');
+
+        try {
+            // Sukurti duomenų perdavimo struktūrą Vercel API
+            const requestBody = {
+                prompt: prompt,
+                systemInstruction: systemInstruction,
+            };
+            
+            // Siunčiama užklausa į Vercel Serverless Function
+            const result = await fetchWithRetry(VERCEL_API_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+
+            // Vercel Serverless funkcija grąžins sugeneruotą tekstą ir šaltinius
+            const text = result.text;
+            const sources = result.sources || [];
+
+            if (text) {
+                // 1. Rodyti sugeneruotą tekstą
+                generatedTextP.textContent = text;
+                generatedTextContainer.classList.remove('hidden');
+                resultTitle.classList.remove('hidden');
+
+                // 2. Išgauti ir rodyti šaltinius
+                if (sources.length > 0) {
+                    sources.forEach(source => {
+                        const li = document.createElement('li');
+                        const a = document.createElement('a');
+                        a.href = source.uri;
+                        a.textContent = source.title;
+                        a.target = '_blank'; // Atidaryti naujame lange
+                        a.className = 'text-indigo-600 hover:text-indigo-800 underline transition duration-150 ease-in-out';
+                        li.appendChild(a);
+                        sourcesList.appendChild(li);
+                    });
+                    sourcesContainer.classList.remove('hidden');
+                }
+
+            } else {
+                // Jei API (serverless funkcija) negrąžino teksto
+                errorText.textContent = result.error || 'Atsiprašome, nepavyko sugeneruoti turinio. Patikrinkite Vercel konfigūraciją ir log\'us.';
+                errorMsg.classList.remove('hidden');
+            }
+
+        } catch (error) {
+            console.error('Bendra klaida:', error);
+            errorText.textContent = `Įvyko klaida generuojant turinį: ${error.message}. Patikrinkite Vercel log'us.`;
+            errorMsg.classList.remove('hidden');
+        } finally {
+            // Išjungti įkrovimo būseną
+            generateBtn.disabled = false;
+            btnText.textContent = 'Generuoti turinį';
+            loadingSpinner.classList.add('hidden');
+        }
+    });
+
+</script>
+
+</body>
+</html>
