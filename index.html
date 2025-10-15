@@ -71,6 +71,12 @@
             <input type="password" id="password" placeholder="Slaptažodis" class="input-style w-full mb-4" required>
             <button id="signup-btn" class="btn-primary w-full py-2 mb-2">Registruotis</button>
             <button id="signin-btn" class="btn-secondary w-full py-2">Prisijungti</button>
+            
+            <!-- NAUJA: Slaptažodžio atstatymo nuoroda -->
+            <button id="forgot-password-btn" class="text-sm text-gray-400 hover:text-white mt-3 w-full text-center">
+                Pamiršote slaptažodį?
+            </button>
+
             <p id="auth-message" class="text-center mt-3 text-sm text-red-400"></p>
         </div>
 
@@ -97,10 +103,10 @@
     </div>
 
     <script>
-        // VISI VIEŠIEJI RAKTAI DABAR ĮTERPTI TIESIOGIAI
+        // VIEŠIEJI RAKTAI
         const SUPABASE_URL = 'https://rqakkwoddmfjfizuhodo.supabase.co'; 
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxYWtrd29kZG1mamZpenVob2RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA0Mjk2MjgsImV4cCI6MjA3NjAwNTYyOH0.61RkAUx4aYUUc0u36XuHRZryp4Dl3E_Np-jauLSPkk0'; 
-        const STRIPE_PUBLISHABLE_KEY = 'pk_test_51SI33zJfVXFUErFWdgQf2Ht1xdWXKUSwIVHsnsHbXCifQxieN8gWhk5sISFfLFXFHOyNHXPSBAJhXK7p7PNPRcbD00cyr6xboJ'; // ĮTERPTA PAGAL JŪSŲ PRAŠYMĄ
+        const STRIPE_PUBLISHABLE_KEY = 'pk_test_51SI33zJfVXFUErFWdgQf2Ht1xdWXKUSwIVHsnsHbXCifQxieN8gWhk5sISFfLFXFHOyNHXPSBAJhXK7p7PNPRcbD00cyr6xboJ'; 
 
         
         // Inicializacija
@@ -250,6 +256,33 @@
                 authMessage.textContent = '';
             }
         }
+        
+        /**
+         * NAUJA: Tvarko pamiršto slaptažodžio užklausą
+         */
+        async function handleForgotPassword() {
+            const email = document.getElementById('email').value;
+            
+            if (!email) {
+                authMessage.textContent = 'Įveskite el. pašto adresą slaptažodžio atkūrimui.';
+                return;
+            }
+
+            authMessage.textContent = 'Siunčiama atkūrimo nuoroda...';
+            
+            // Supabase funkcija siųsti atkūrimo nuorodą
+            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+                 // ČIA galite nurodyti, kurioje puslapio vietoje vartotojas turi būti po paspaudimo:
+                 // redirectTo: 'https://jusu-domen.com/update-password', 
+            });
+
+            if (error) {
+                authMessage.textContent = 'Klaida siunčiant nuorodą: ' + error.message;
+            } else {
+                authMessage.textContent = `Slaptažodžio atkūrimo nuoroda išsiųsta į ${email}. Patikrinkite pašto dėžutę.`;
+            }
+        }
+
 
         // --- GEMINI GENERAVIMO TVARKYKLĖ ---
 
@@ -360,6 +393,7 @@
             // Prisijungimo/Registracijos mygtukai
             document.getElementById('signup-btn').onclick = handleSignUp;
             document.getElementById('signin-btn').onclick = handleSignIn;
+            document.getElementById('forgot-password-btn').onclick = handleForgotPassword; // NAUJA FUNKCIJA
             
             // Generavimo mygtukas
             generateBtn.onclick = handleGenerate;
