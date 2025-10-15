@@ -5,8 +5,7 @@
 "private": true,
 "type": "module",
 "scripts": {
-"start": "echo 'No build step required for this static project'",
-"build": "echo 'Building static project... done.'"
+"start": "echo 'Vercel will only deploy the Serverless function in /api and serve index.html statically.'"
 },
 "dependencies": {
 "node-fetch": "^3.3.2",
