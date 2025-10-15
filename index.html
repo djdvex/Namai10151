@@ -3,203 +3,379 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Teksto Generatorius</title>
-    <!-- Tailwind CSS CDN -->
+    <title>Gemini Generatorius su Supabase ir Stripe</title>
+    <!-- Tailwind CSS iš CDN (CSS karkasas stiliams) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Fontas -->
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
         body {
+            background-color: #1a1a2e; /* Tamsi naktinė mėlyna spalva */
+            color: #e4e4e7;
             font-family: 'Inter', sans-serif;
-            background-color: #f7f7f7;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            min-height: 100vh;
-            padding: 2rem 1rem;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .card {
+            background-color: #27284b;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+        .btn-primary {
+            background-color: #6415ff;
+            color: white;
+            transition: background-color 0.2s;
+        }
+        .btn-primary:hover {
+            background-color: #5010cc;
+        }
+        .btn-secondary {
+            background-color: #3b3c69;
+            color: #c4c4e7;
+            transition: background-color 0.2s;
+        }
+        .btn-secondary:hover {
+            background-color: #4b4c7c;
+        }
+        .input-style, .textarea-style {
+            background-color: #3b3c69;
+            color: #e4e4e7;
+            border: none;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
         }
     </style>
+    <!-- Įkeliame Supabase (kliento pusės) ir Stripe.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://js.stripe.com/v3/"></script>
 </head>
-<body class="antialiased">
+<body class="p-4 md:p-8 min-h-screen">
+    <div class="container mx-auto">
+        <header class="mb-8 flex justify-between items-center p-4 card">
+            <h1 class="text-3xl font-bold text-white">Gemini Generatorius</h1>
+            <div id="auth-status" class="flex items-center space-x-4">
+                <!-- Autentifikacijos būsena ir mygtukai bus rodomi čia -->
+            </div>
+        </header>
 
-<div class="w-full max-w-2xl bg-white p-8 rounded-xl shadow-2xl transition-shadow hover:shadow-3xl">
-    <h1 class="text-3xl font-bold mb-6 text-center text-indigo-700">Gemini Teksto Generatorius</h1>
-    <p class="text-center text-gray-500 mb-8">Įveskite užklausą ir generuokite turinį naudodami Gemini su Google paieška.</p>
-
-    <!-- Teksto įvedimo forma -->
-    <div class="mb-6">
-        <label for="prompt" class="block text-sm font-medium text-gray-700 mb-2">Jūsų užklausa:</label>
-        <textarea id="prompt" rows="4" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out" placeholder="Pvz.: Parašykite 500 žodžių esė apie dirbtinio intelekto etikos principus."></textarea>
-    </div>
-
-    <!-- Sistemos instrukcija (Gemini persona) -->
-    <div class="mb-8">
-        <label for="systemInstruction" class="block text-sm font-medium text-gray-700 mb-2">Sistemos instrukcija (Gemini persona):</label>
-        <textarea id="systemInstruction" rows="2" class="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 resize-none transition duration-150 ease-in-out" placeholder="Pvz.: Elkitės kaip pasaulinio lygio finansų analitikas. Pateikite glaustą, vienos pastraipos santrauką..."></textarea>
-        <p class="text-xs text-gray-400 mt-1">Nurodykite Gemini, koks turėtų būti jo vaidmuo ir tonas.</p>
-    </div>
-
-    <!-- Generavimo mygtukas -->
-    <button id="generateBtn" class="w-full flex justify-center items-center px-4 py-3 border border-transparent text-lg font-medium rounded-xl shadow-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-300 ease-in-out transform hover:scale-[1.01] disabled:bg-indigo-400 disabled:cursor-not-allowed">
-        <span id="btnText">Generuoti turinį</span>
-        <!-- Įkrovimo indikatorius -->
-        <svg id="loadingSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-    </button>
-
-    <!-- Rezultatų skiltis -->
-    <div id="results" class="mt-10 pt-6 border-t border-gray-200">
-        <h2 id="resultTitle" class="text-2xl font-semibold mb-4 text-indigo-700 hidden">Sugeneruotas turinys</h2>
-
-        <!-- Gemini atsakas -->
-        <div id="generatedTextContainer" class="bg-indigo-50 p-4 rounded-lg shadow-inner whitespace-pre-wrap text-gray-800 text-base leading-relaxed hidden">
-            <p id="generatedText"></p>
+        <!-- Kvotos ir Mokėjimų Informacija -->
+        <div id="quota-display" class="card p-4 mb-8 hidden">
+            <p class="text-lg font-semibold">Liko žinučių: <span id="remaining-count" class="text-yellow-400">0</span></p>
+            <button id="buy-messages-btn" class="btn-primary px-4 py-2 mt-2">Pirkti daugiau žinučių</button>
+            <p id="auth-info" class="text-sm mt-2 text-gray-400"></p>
         </div>
 
-        <!-- Šaltinių skiltis (jei naudojama Google Search) -->
-        <div id="sourcesContainer" class="mt-4 p-4 bg-gray-100 rounded-lg hidden">
-            <p class="text-sm font-semibold text-gray-700 mb-2">Šaltiniai (naudojant Google Search):</p>
-            <ul id="sourcesList" class="list-disc pl-5 text-sm text-gray-600">
-                <!-- Šaltiniai bus pridėti čia -->
-            </ul>
+        <!-- Autentifikacijos Forma -->
+        <div id="auth-container" class="card p-8 mb-8 mx-auto hidden" style="max-width: 400px;">
+            <h2 class="text-xl font-bold mb-4">Prisijungimas / Registracija</h2>
+            <input type="email" id="email" placeholder="El. paštas" class="input-style w-full mb-3" required>
+            <input type="password" id="password" placeholder="Slaptažodis" class="input-style w-full mb-4" required>
+            <button id="signup-btn" class="btn-primary w-full py-2 mb-2">Registruotis</button>
+            <button id="signin-btn" class="btn-secondary w-full py-2">Prisijungti</button>
+            <p id="auth-message" class="text-center mt-3 text-sm text-red-400"></p>
         </div>
 
-        <!-- Klaidos pranešimas -->
-        <div id="errorMsg" class="mt-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg hidden">
-            <p id="errorText"></p>
+        <!-- Generatoriaus Forma -->
+        <div id="generator-container" class="card p-8 hidden">
+            <h2 class="text-2xl font-bold mb-4">Generuoti Turinį</h2>
+
+            <label for="prompt" class="block text-sm font-medium mb-1">Jūsų užklausa:</label>
+            <textarea id="prompt" class="textarea-style w-full h-32 mb-4" placeholder="Parašykite straipsnį apie klimato kaitos poveikį Baltijos jūrai..."></textarea>
+
+            <label for="system-instruction" class="block text-sm font-medium mb-1">Sistemos instrukcijos (Gemini persona):</label>
+            <input type="text" id="system-instruction" class="input-style w-full mb-4" placeholder="Esi profesionalus gamtosaugos specialistas." value="Esi profesionalus gamtosaugos specialistas.">
+
+            <button id="generate-btn" class="btn-primary w-full py-3 text-lg font-semibold">Generuoti turinį</button>
+
+            <!-- Rezultatų Laukas -->
+            <div id="result-container" class="mt-8">
+                <p id="loading-message" class="text-center text-blue-400 hidden">Generuojama... Palaukite.</p>
+                <div id="result-content" class="card p-4 mt-4 whitespace-pre-wrap text-sm" style="min-height: 50px;">
+                    <!-- Rezultatai bus rodomi čia -->
+                </div>
+            </div>
         </div>
     </div>
-</div>
 
-<script>
-    // API adreso konstanta nukreipia į Vercel Serverless Function
-    const VERCEL_API_ENDPOINT = "/api/generate";
-    
-    // Eksponentinio atsitraukimo funkcija užklausai siųsti (kliento pusė)
-    async function fetchWithRetry(url, options, maxRetries = 5, delay = 1000) {
-        for (let i = 0; i < maxRetries; i++) {
+    <script>
+        // Kintamieji bus priskirti čia per Vercel/Supabase ENV
+        const SUPABASE_URL = 'SUPABASE_URL_HERE'; // Pakeisti į process.env.SUPABASE_URL Vercel'e
+        const SUPABASE_ANON_KEY = 'SUPABASE_ANON_KEY_HERE'; // Pakeisti į process.env.SUPABASE_ANON_KEY Vercel'e
+        const STRIPE_PUBLISHABLE_KEY = 'STRIPE_PUBLISHABLE_KEY_HERE'; // Pakeisti į process.env.STRIPE_PUBLISHABLE_KEY Vercel'e
+        
+        // Pakeisti kintamųjų reikšmes, kai diegiama Vercel platformoje.
+        // Jei Vercel leidžia, galite naudoti inline scriptą:
+        /*
+        const SUPABASE_URL = window.__SUPABASE_URL__;
+        const SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY__;
+        const STRIPE_PUBLISHABLE_KEY = window.__STRIPE_PUBLISHABLE_KEY__;
+        */
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const stripe = Stripe(STRIPE_PUBLISHABLE_KEY);
+
+        // --- DOM ELEMENTAI ---
+        const authContainer = document.getElementById('auth-container');
+        const generatorContainer = document.getElementById('generator-container');
+        const authStatus = document.getElementById('auth-status');
+        const quotaDisplay = document.getElementById('quota-display');
+        const remainingCount = document.getElementById('remaining-count');
+        const authMessage = document.getElementById('auth-message');
+        const promptInput = document.getElementById('prompt');
+        const generateBtn = document.getElementById('generate-btn');
+        const resultContent = document.getElementById('result-content');
+        const loadingMessage = document.getElementById('loading-message');
+        const buyMessagesBtn = document.getElementById('buy-messages-btn');
+
+        let currentUserId = null;
+
+        // --- FUNKCIJOS ---
+
+        /**
+         * Parodo naudotojo kvotą
+         * @param {string} userId - prisijungusio naudotojo ID
+         */
+        async function fetchQuota(userId) {
+            if (!userId) {
+                remainingCount.textContent = 0;
+                return;
+            }
+
+            // Kviečiame kvotos tikrinimo funkcija, kuri kviečia api/chat be prompt
+            // Tai yra paprastas būdas gauti kvotą, bet efektyviau būtų tiesiogiai per Supabase
+            // Tačiau tiesioginis kvietimas api/chat be prompt paprastesnis implementuoti.
+            
+            // Tiesioginis kvietimas į Supabase yra saugiausias kvotos gavimo būdas:
             try {
-                const response = await fetch(url, options);
-                if (response.ok) {
-                    return await response.json();
-                }
+                const { data, error } = await supabase
+                    .from('user_quotas')
+                    .select('remaining_messages')
+                    .eq('user_id', userId)
+                    .single();
 
-                // API Klaida, bandoma iš naujo arba pranešama
-                const errorText = await response.text();
-                if (response.status === 429 || response.status >= 500) {
-                    throw new Error(`Serverio Klaida: ${response.status} - ${errorText}`);
+                if (error && error.code !== 'PGRST116') { // PGRST116: eilutė nerasta
+                    console.error('Kvotos gavimo klaida:', error);
+                    remainingCount.textContent = 'ERROR';
+                    return;
                 }
                 
-                // Kitos klaidos (pvz., 400 Bad Request) nėra pakartotinai bandomos
-                throw new Error(`Klaida: ${response.status} - ${errorText}`);
+                const remaining = data ? data.remaining_messages : 20; // Naujam vartotojui duodame 20 nemokamų žinučių
+                
+                // Jei naujas vartotojas ir kvota dar nebuvo nustatyta, nustatome
+                if (!data && remaining > 0) {
+                     await supabase.from('user_quotas').insert([{ user_id: userId, remaining_messages: remaining }]);
+                }
+
+                remainingCount.textContent = remaining;
+                generateBtn.disabled = remaining <= 0;
+                generateBtn.textContent = remaining <= 0 ? 'Kvotą išnaudota' : 'Generuoti turinį';
+
+            } catch (err) {
+                 console.error('Kvotos gavimo klaida:', err);
+                 remainingCount.textContent = 'ERROR';
+            }
+        }
+
+        /**
+         * Atnaujina vartotojo sąsają pagal autentifikacijos būseną.
+         */
+        function updateUI(session) {
+            authStatus.innerHTML = '';
+            
+            if (session) {
+                // PRISIJUNGĘS VARTOTOJAS
+                currentUserId = session.user.id;
+
+                authContainer.classList.add('hidden');
+                generatorContainer.classList.remove('hidden');
+                quotaDisplay.classList.remove('hidden');
+                
+                // Parodo el. paštą ir Atsijungimo mygtuką
+                authStatus.innerHTML = `
+                    <p class="text-sm font-medium">${session.user.email}</p>
+                    <button id="signout-btn" class="btn-secondary px-3 py-1 text-sm">Atsijungti</button>
+                `;
+                document.getElementById('signout-btn').onclick = handleSignOut;
+                
+                fetchQuota(currentUserId);
+            } else {
+                // NEPRISIJUNGĘS VARTOTOJAS
+                currentUserId = null;
+
+                authContainer.classList.remove('hidden');
+                generatorContainer.classList.add('hidden');
+                quotaDisplay.classList.add('hidden');
+            }
+        }
+
+        // --- AUTENTIFIKACIJOS TVARKYKLĖS ---
+
+        async function handleSignUp() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            authMessage.textContent = 'Registruojama...';
+            const { data, error } = await supabase.auth.signUp({ email, password });
+
+            if (error) {
+                authMessage.textContent = 'Registracija nepavyko: ' + error.message;
+            } else {
+                authMessage.textContent = 'Sėkmingai užregistruota! Patikrinkite el. paštą, kad patvirtintumėte.';
+            }
+        }
+
+        async function handleSignIn() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            authMessage.textContent = 'Prisijungiama...';
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+            if (error) {
+                authMessage.textContent = 'Prisijungimas nepavyko: ' + error.message;
+            } else {
+                authMessage.textContent = '';
+                updateUI(data.session); // Supabase listener atnaujins UI, bet galime atnaujinti ir čia.
+            }
+        }
+
+        async function handleSignOut() {
+            authMessage.textContent = 'Atsijungiama...';
+            const { error } = await supabase.auth.signOut();
+
+            if (error) {
+                authMessage.textContent = 'Atsijungimas nepavyko: ' + error.message;
+            } else {
+                authMessage.textContent = '';
+                updateUI(null);
+                // Išvalyti sesiją ir vartotojo duomenis
+            }
+        }
+
+        // --- GEMINI GENERAVIMO TVARKYKLĖ ---
+
+        async function handleGenerate() {
+            const currentPrompt = promptInput.value.trim();
+            const systemInstruction = document.getElementById('system-instruction').value.trim();
+            const supabaseToken = supabase.auth.session()?.access_token;
+
+            if (!currentPrompt || !supabaseToken) {
+                resultContent.textContent = "Įveskite užklausą ir įsitikinkite, kad esate prisijungęs.";
+                return;
+            }
+
+            // UI atnaujinimas
+            generateBtn.disabled = true;
+            loadingMessage.classList.remove('hidden');
+            resultContent.textContent = '';
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        prompt: currentPrompt, 
+                        systemInstruction: systemInstruction,
+                        supabaseToken: supabaseToken 
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    // Klaida iš API (pvz., kvota baigėsi)
+                    resultContent.textContent = 'Klaida generuojant: ' + (data.error || 'Nežinoma klaida.');
+                    
+                    if (data.remaining !== undefined) {
+                        remainingCount.textContent = data.remaining;
+                    }
+
+                    if (data.error && data.error.includes('Quota exceeded')) {
+                        // Jei kvota viršyta, atblokuojame pirkimo mygtuką
+                        generateBtn.textContent = 'Kvotą išnaudota';
+                    }
+
+                } else {
+                    // Sėkmė
+                    resultContent.textContent = data.text;
+                    remainingCount.textContent = data.remaining;
+                    generateBtn.disabled = data.remaining <= 0;
+                }
 
             } catch (error) {
-                console.error(`Bandoma iš naujo po klaidos (bandymas ${i + 1}/${maxRetries}):`, error);
-                if (i < maxRetries - 1) {
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                    delay *= 2; // Eksponentinis atsitraukimas
-                } else {
-                    throw error; // Paskutinis bandymas nepavyko
+                console.error('Fetch error:', error);
+                resultContent.textContent = 'Nepavyko prisijungti prie serverio API.';
+            } finally {
+                loadingMessage.classList.add('hidden');
+                generateBtn.disabled = remainingCount.textContent <= 0;
+                if(remainingCount.textContent > 0) {
+                     generateBtn.disabled = false;
                 }
             }
         }
-    }
-
-    // Pagrindinė generavimo funkcija
-    document.getElementById('generateBtn').addEventListener('click', async () => {
-        const prompt = document.getElementById('prompt').value.trim();
-        const systemInstruction = document.getElementById('systemInstruction').value.trim();
         
-        const generatedTextContainer = document.getElementById('generatedTextContainer');
-        const generatedTextP = document.getElementById('generatedText');
-        const sourcesContainer = document.getElementById('sourcesContainer');
-        const sourcesList = document.getElementById('sourcesList');
-        const errorMsg = document.getElementById('errorMsg');
-        const errorText = document.getElementById('errorText');
-        const generateBtn = document.getElementById('generateBtn');
-        const btnText = document.getElementById('btnText');
-        const loadingSpinner = document.getElementById('loadingSpinner');
-        const resultTitle = document.getElementById('resultTitle');
+        // --- STRIPE MOKĖJIMŲ TVARKYKLĖ ---
+        async function handleBuyMessages() {
+             const userId = currentUserId;
 
-        // Išvalyti ankstesnius rezultatus
-        generatedTextContainer.classList.add('hidden');
-        sourcesContainer.classList.add('hidden');
-        errorMsg.classList.add('hidden');
-        generatedTextP.textContent = '';
-        sourcesList.innerHTML = '';
-        resultTitle.classList.add('hidden');
-
-        if (!prompt) {
-            errorText.textContent = 'Prašome įvesti užklausą.';
-            errorMsg.classList.remove('hidden');
-            return;
-        }
-
-        // Įjungti įkrovimo būseną
-        generateBtn.disabled = true;
-        btnText.textContent = 'Generuojama...';
-        loadingSpinner.classList.remove('hidden');
-
-        try {
-            // Sukurti duomenų perdavimo struktūrą Vercel API
-            const requestBody = {
-                prompt: prompt,
-                systemInstruction: systemInstruction,
-            };
+            if (!userId) {
+                alert('Pirmiausia turite prisijungti, kad galėtumėte pirkti žinutes.');
+                return;
+            }
             
-            // Siunčiama užklausa į Vercel Serverless Function
-            const result = await fetchWithRetry(VERCEL_API_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody)
-            });
+            buyMessagesBtn.disabled = true;
+            buyMessagesBtn.textContent = 'Ruošiama...';
 
-            // Vercel Serverless funkcija grąžins sugeneruotą tekstą ir šaltinius
-            const text = result.text;
-            const sources = result.sources || [];
+            try {
+                // Kviečiame Serverless funkciją, kuri sukurs Stripe Checkout sesiją
+                const response = await fetch('/api/create-checkout-session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: userId })
+                });
 
-            if (text) {
-                // 1. Rodyti sugeneruotą tekstą
-                generatedTextP.textContent = text;
-                generatedTextContainer.classList.remove('hidden');
-                resultTitle.classList.remove('hidden');
+                const data = await response.json();
 
-                // 2. Išgauti ir rodyti šaltinius
-                if (sources.length > 0) {
-                    sources.forEach(source => {
-                        const li = document.createElement('li');
-                        const a = document.createElement('a');
-                        a.href = source.uri;
-                        a.textContent = source.title;
-                        a.target = '_blank'; // Atidaryti naujame lange
-                        a.className = 'text-indigo-600 hover:text-indigo-800 underline transition duration-150 ease-in-out';
-                        li.appendChild(a);
-                        sourcesList.appendChild(li);
-                    });
-                    sourcesContainer.classList.remove('hidden');
+                if (response.ok && data.url) {
+                    // Nukreipiame vartotoją į Stripe apmokėjimo puslapį
+                    window.location.href = data.url;
+                } else {
+                    alert('Klaida kuriant apmokėjimo sesiją: ' + (data.error || 'Nežinoma klaida.'));
                 }
 
-            } else {
-                // Jei API (serverless funkcija) negrąžino teksto
-                errorText.textContent = result.error || 'Atsiprašome, nepavyko sugeneruoti turinio. Patikrinkite Vercel konfigūraciją ir log\'us.';
-                errorMsg.classList.remove('hidden');
+            } catch (error) {
+                console.error('Mokėjimo klaida:', error);
+                alert('Serverio klaida kuriant apmokėjimo sesiją.');
+            } finally {
+                buyMessagesBtn.disabled = false;
+                buyMessagesBtn.textContent = 'Pirkti daugiau žinučių';
             }
-
-        } catch (error) {
-            console.error('Bendra klaida:', error);
-            errorText.textContent = `Įvyko klaida generuojant turinį: ${error.message}. Patikrinkite Vercel log'us.`;
-            errorMsg.classList.remove('hidden');
-        } finally {
-            // Išjungti įkrovimo būseną
-            generateBtn.disabled = false;
-            btnText.textContent = 'Generuoti turinį';
-            loadingSpinner.classList.add('hidden');
         }
-    });
 
-</script>
 
+        // --- ĮVYKIŲ KLAUSYKLĖS ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Prisijungimo/Registracijos mygtukai
+            document.getElementById('signup-btn').onclick = handleSignUp;
+            document.getElementById('signin-btn').onclick = handleSignIn;
+            
+            // Generavimo mygtukas
+            generateBtn.onclick = handleGenerate;
+            
+            // Pirkimo mygtukas
+            buyMessagesBtn.onclick = handleBuyMessages;
+
+            // Supabase autentifikacijos būsenos klausyklė
+            supabase.auth.onAuthStateChange((event, session) => {
+                console.log('Auth event:', event);
+                updateUI(session);
+            });
+            
+            // Pradinis UI atnaujinimas
+            supabase.auth.getSession().then(({ data: { session } }) => {
+                updateUI(session);
+            });
+        });
+    </script>
 </body>
 </html>
